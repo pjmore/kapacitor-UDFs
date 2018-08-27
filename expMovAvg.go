@@ -10,7 +10,7 @@ import (
 		"github.com/influxdata/kapacitor/udf/agent"
 )
 
-// This struct holds all of the states based on 
+// This struct holds all information that charecterizes the input and output stream
 type expAvgHandler struct{
 		field string
 		as string
@@ -32,7 +32,6 @@ type expAvgState struct {
 
 
 // returns a function that updates the value of the exponential moving average
-// Where the 
 func (e *expAvgState) update(value float64) float64 {
 	beta := 1.0 - e.Alpha
 	l := len(e.Window)
@@ -176,7 +175,7 @@ func (e *expAvgHandler) EndBatch(*agent.EndBatch) error {
 func (e *expAvgHandler) Stop(){
 	close(e.agent.Responses)
 }
-// A process UDF use stdin and stdout to communicate with the process
+// A process UDF uses stdin and stdout to communicate with the process
 func main() {
 	a := agent.New(os.Stdin, os.Stdout)
 	h := newExpAvgHandler(a)
