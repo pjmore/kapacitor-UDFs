@@ -10,6 +10,7 @@ import (
 		"github.com/influxdata/kapacitor/udf/agent"
 )
 
+// This struct holds all of the states based on 
 type expAvgHandler struct{
 		field string
 		as string
@@ -21,7 +22,7 @@ type expAvgHandler struct{
 }
 
 
-
+// structure that 
 type expAvgState struct {
 		Size int
 		Window []float64
@@ -30,7 +31,8 @@ type expAvgState struct {
 }
 
 
-// returns a function that updates the value of the moving average
+// returns a function that updates the value of the exponential moving average
+// Where the 
 func (e *expAvgState) update(value float64) float64 {
 	beta := 1.0 - e.Alpha
 	l := len(e.Window)
@@ -40,7 +42,6 @@ func (e *expAvgState) update(value float64) float64 {
 	}else{
 		e.Avg = value*e.Alpha + e.Avg*beta
 	}
-	// multiplies all elements by beta
 	for i := len(e.Window)-1; i >= 0; i--{
 		e.Window[i] = e.Window[i]*beta
 	}
@@ -56,6 +57,8 @@ func newExpAvgHandler(a *agent.Agent) *expAvgHandler {
 		}
 }
 
+// the Info function defines what form the input and output form of the data, as well as what data types the UDF requires
+
 func (e *expAvgHandler) Info() (*agent.InfoResponse, error){
 	info:= &agent.InfoResponse{
 		Wants: agent.EdgeType_STREAM,
@@ -69,6 +72,9 @@ func (e *expAvgHandler) Info() (*agent.InfoResponse, error){
 	}
 	return info,nil
 }
+
+// The Init function is called by kapacitor after Info
+// This is where the values are passed into the function and error checking takes place
 
 func (e *expAvgHandler) Init(r *agent.InitRequest) (*agent.InitResponse, error){
 	init := &agent.InitResponse{
@@ -108,6 +114,8 @@ func (e *expAvgHandler) Init(r *agent.InitRequest) (*agent.InitResponse, error){
 	return init,nil
 }
 
+// Allows kapacitor to take a snapshot of the process variables
+
 func (e *expAvgHandler) Snapshot() (*agent.SnapshotResponse,error){
 	var buf bytes.Buffer
 	enc := gob.NewEncoder(&buf)
@@ -118,6 +126,8 @@ func (e *expAvgHandler) Snapshot() (*agent.SnapshotResponse,error){
 	},nil
 }
 
+
+// Restores the process variables to their previous state
 func (e *expAvgHandler) Restore(req *agent.RestoreRequest) (*agent.RestoreResponse,error){
 	buf := bytes.NewReader(req.Snapshot)
 	dec := gob.NewDecoder(buf)
@@ -132,7 +142,9 @@ func (e *expAvgHandler) Restore(req *agent.RestoreRequest) (*agent.RestoreRespon
 	}, nil
 }
 
-
+// This is where the points are separated by the groupby clause in the stream data
+// Updates the state with the most recent value
+// Calls the update function which does the actual exponential moving average calculation
 func (e *expAvgHandler) Point(p *agent.Point) error{
 	value := p.FieldsDouble[e.field]
 	state := e.state[p.Group]
@@ -152,7 +164,7 @@ func (e *expAvgHandler) Point(p *agent.Point) error{
 	return nil
 }
 
-
+// This is a stream UDF so the batch handlers are not used
 func (e *expAvgHandler) BeginBatch(*agent.BeginBatch) error {
 	return errors.New("batching not supported")
 }
@@ -164,7 +176,7 @@ func (e *expAvgHandler) EndBatch(*agent.EndBatch) error {
 func (e *expAvgHandler) Stop(){
 	close(e.agent.Responses)
 }
-
+// A process UDF use stdin and stdout to communicate with the process
 func main() {
 	a := agent.New(os.Stdin, os.Stdout)
 	h := newExpAvgHandler(a)
