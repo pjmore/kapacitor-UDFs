@@ -16,13 +16,12 @@ logger = logging.getLogger()
 class ExpAvgHandler(Handler):
 	
 	class state(object):
-		# may need to change the privateness of alpha
 		def __init__(self, size,alpha):
 			self.size = size
 			self._window = []
 			self._avg = 0.0
 			self.alpha = alpha
-		
+		# user defined not required. However, the state class does require some method to operate 
 		def update(self,value):
 			beta = 1 - self.alpha
 			l = len(self._window)
@@ -35,7 +34,7 @@ class ExpAvgHandler(Handler):
 			self._window = [point*beta for point in self._window]
 			self._window.append(value*self.alpha)
 			return self._avg
-			
+		# may be required for stream data
 		def snapshot(self):
 			return{
 				'size' 	 : self.size,
@@ -57,7 +56,8 @@ class ExpAvgHandler(Handler):
 		self._as = 'exp_avg'
 		self._state = {}
 		self._alpha = 0
-	
+	## Kapacitor calls info at initialization so that it knows what kind of data the process wants
+	# REQUIRED
 	def info(self):
 		response = udf_pb2.Response()
 		response.info.wants = udf_pb2.STREAM
@@ -67,7 +67,8 @@ class ExpAvgHandler(Handler):
 		response.info.options['as'].valueTypes.append(udf_pb2.STRING)
 		response.info.options['alpha'].valueTypes.append(udf_pb2.DOUBLE)
 		return response
-		
+	# Called after info. It is here when you should check that the right data has been sent
+	# REQUIRED
 	def init(self, init_req):
 		success = True
 		msg = ""
@@ -100,7 +101,7 @@ class ExpAvgHandler(Handler):
 		response.init.error = msg[1:]
 		
 		return response
-		
+	# Not required but recommended. Allows kapacitor to restart process in the same state as it was before
 	def snapshot(self):
 		data = {}
 		for group, state in self._state.iteritems():
@@ -108,7 +109,7 @@ class ExpAvgHandler(Handler):
 		response = udf_pb2.Response()
 		response.snapshot.snapshot = json.dumps(data)
 		return response
-		
+	# Restores the process to the state passed into the function
 	def restore(self, restore_req):
 		success = False
 		msg = ''
@@ -127,13 +128,14 @@ class ExpAvgHandler(Handler):
 		response.restore.error = msg
 		return response
 				
-				
+	# This is a stream UDF so batches are not required
 	def begin_batch(self, begin_req):
-		raise Exception("input batch is not supported")
+		raise Exception("batch input is not supported")
 		
 	def end_batch(self, end_req):
 		raise Exception("batch output is not supported")
-		
+	# Point is the function that processes the stream of input data. Keeps the groups that the input data is sorted into
+	# REQUIRED for stream udf's
 	def point(self, point):
 		response = udf_pb2.Response()
 		response.point.CopyFrom(point)
@@ -147,7 +149,7 @@ class ExpAvgHandler(Handler):
 		avg = self._state[point.group].update(value)
 		response.point.fieldsDouble[self._as] = avg
 		self._agent.write_response(response)
-		
+# Initializes agent to talk to kapcitor with the ExpAvgHandler
 if __name__ == '__main__':
 	a = Agent()
 	h = ExpAvgHandler(a)
