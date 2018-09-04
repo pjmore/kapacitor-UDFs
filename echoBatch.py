@@ -2,20 +2,16 @@ import sys
 import json
 from kapacitor.udf.agent import Agent,Handler
 from kapacitor.udf import udf_pb2
-
+import ast
 
 
 import logging
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(levelname)s:%(name)s: %(message)s')
 logger = logging.getLogger()
 
-# Computes the exponential moving average of the series
-# size - number of data points in window
-# field - the field to operate on
-# as - the name of the average field, default exp_avg 
-# alpha - the discount factor of the 
 
-class MovAvgHandler(Handler):
+
+class EchoHandler(Handler):
 	
 	class state(object):
 		def __init__(self, size):
@@ -29,20 +25,35 @@ class MovAvgHandler(Handler):
 		def update(self,value,point):
 			self.window.append((value,point))
 			
+		"""Here is where I would place any analysis algorithm.
+			Must return points to work."""
 		def myAlgorithm(self):
 			return [x[1] for x in self.window]
 			
+		"""Uses the protobuf SerializeToString method to convert the point class to bytecode"""
 		def snapshot(self):
+			window = []
+			strPoint = udf_pb2.Response().point
+			for point in self.window:
+				strPoint = point[1]
+				window.append((point[0],strPoint.SerializeToString()))
 			return{
 				'size' 	 : self.size,
-				'window' : self.window,
+				'window' : str(window),
 			}
-		
+		"""uses the protobuf ParseFromString to get a unicode reperesentation of the list and then converts that into a list"""
 		def restore(self,data):
 			self.size = int(data['size'])
-			self.window = [d for d in data['window']]
+			strPoint = udf_pb2.Response().point
+			data = ast.literal_eval(data['window'])
 			
-			
+			for point in data:
+				myPoint = float(point[0])
+				strPoint.ParseFromString(point[1])
+				self.window.append((myPoint,strPoint))
+			#logger.info(self.window)
+		
+		
 		def getLastPoint(self):
 			if len(self.window) >0:
 				point = self.window[-1]
@@ -54,13 +65,13 @@ class MovAvgHandler(Handler):
 		self._agent = agent
 		self._field = None
 		self._size = 0
-		self._as = 'exp_avg'
+		self._as = 'echo'
 		self._state = {}
 		self._period = 0
 		self._timeout = 0
 		self._firstpoint = True
 		
-	
+	""" Tells kapacitor what kind of input that the UDF wants"""
 	def info(self):
 		response = udf_pb2.Response()
 		response.info.wants = udf_pb2.STREAM
@@ -70,7 +81,8 @@ class MovAvgHandler(Handler):
 		response.info.options['as'].valueTypes.append(udf_pb2.STRING)
 		response.info.options['period'].valueTypes.append(udf_pb2.DURATION)
 		return response
-		
+	
+	""" Parses input from kapacitor and checks that all values are valid"""
 	def init(self, init_req):
 		success = True
 		msg = ""
@@ -100,7 +112,7 @@ class MovAvgHandler(Handler):
 		response.init.error = msg[1:]
 		
 		return response
-		
+	"""Creates a json reperesentation of the data"""	
 	def snapshot(self):
 		data = {}
 		for group, state in self._state.iteritems():
@@ -108,23 +120,25 @@ class MovAvgHandler(Handler):
 		response = udf_pb2.Response()
 		response.snapshot.snapshot = json.dumps(data)
 		return response
-		
+	""" Takes a json representation of the data and places it back into the process, usually only used on process restart."""
 	def restore(self, restore_req):
 		success = False
 		msg = ''
 		try:
 			data = json.loads(restore_req.snapshot)
 			for group, snapshot in data.iteritems():
-				self._state[group] = MovAvgHandler.state(0)
+				self._state[group] = EchoHandler.state(0)
 				self._state[group].restore(snapshot)
 			success = True
 		except Exception as e:
 			success = False
 			msg = str(e)
+			#logger.info(str(e))
 		
 		response = udf_pb2.Response()
 		response.restore.success = success
 		response.restore.error = msg
+		#logger.info(success)
 		return response
 					
 	def begin_batch(self, begin_req):
@@ -133,6 +147,7 @@ class MovAvgHandler(Handler):
 	def end_batch(self, end_req):
 		pass
 		
+	""" Creates the end batch message based on what the last point to be entered into the window was"""
 	def createEndBatch(self,point):
 		response = udf_pb2.Response()
 		response.end.group = point.group
@@ -141,17 +156,21 @@ class MovAvgHandler(Handler):
 		response.end.tmax = point.time
 		response.end.name = point.name
 		self._agent.write_response(response)
-	
+	""" Creates the start batch message based on what the last point to be entered into the window was """
 	def createStartBatch(self,point):
 		response = udf_pb2.Response()
 		response.begin.group = point.group
-		#response.begin.tags = point.tags
 		for k,v in point.tags.iteritems():
 			response.begin.tags[k]=v
 		response.begin.size = len(self._state[point.group].window)
 		response.begin.name = point.name
 		self._agent.write_response(response)
 	
+	""" Writes a single groups points to kapacitor.
+		1. Creates start batch message
+		2. Writes all points in window to kapacitor
+		3. Creates end batch message
+		4. Empties the window"""
 	def emptyGroup(self,point):
 		self.createStartBatch(point)
 		response = udf_pb2.Response()
@@ -161,7 +180,7 @@ class MovAvgHandler(Handler):
 		self.createEndBatch(point)
 		self._state[point.group].reset()
 		
-		
+	""" Empties all of the groups using emptyGroup()"""
 	def emptyAllGroups(self):
 		for state in self._state.itervalues():
 			point = state.getLastPoint()
@@ -169,19 +188,24 @@ class MovAvgHandler(Handler):
 				self.emptyGroup(point)
 			
 		
+	""" Checks for timeout if it has been entered. Based on when the first point comes in """
 	def isTimeout(self,point):
 		if point.time > self._timeout and self._timeout > 0:
 			return True
 		else: 
 			return False
-		
+	""" Checks for a full batch."""
 	def batchSizeExceeded(self,point):
 		if len(self._state[point.group].window) >= self._state[point.group].size and self._size > 0:
 			return True
 		else:
 			return False
 		
-	# needs a significant amount of work before it is operational
+	""" Called by the Agent and the only non-initilization method called by kapacitor. 
+		Processes point by point and sorts into groups. 
+		Then checks for conditions to empty the batch with a timeout taking priority over a full batch
+		Finally appends point to proper window.
+		"""
 	def point(self, point):
 		if self._firstpoint:
 			self._timeout = point.time + self._period
@@ -191,25 +215,23 @@ class MovAvgHandler(Handler):
 		response.point.ClearField('fieldsInt')
 		response.point.ClearField('fieldsString')
 		response.point.ClearField('fieldsDouble')
-		
-		
 		value = point.fieldsDouble[self._field]
 		if point.group not in self._state:
-			##needs to be updated
-			self._state[point.group] = MovAvgHandler.state(self._size)
+			self._state[point.group] = EchoHandler.state(self._size)
 		if self.isTimeout(point):
 			self.emptyAllGroups()
 			self._timeout = self._timeout + self._period
 		elif self.batchSizeExceeded(point):
 			self.emptyGroup(point)
+		# add the as option to update method
 		self._state[point.group].update(value,point)
 
 		
 
-		
+""" Entry point. Allows agent to write to handler and handler to write to agent"""
 if __name__ == '__main__':
 	a = Agent()
-	h = MovAvgHandler(a)
+	h = EchoHandler(a)
 	a.handler = h
 
 	logger.info("Starting Agent")
