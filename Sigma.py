@@ -22,7 +22,7 @@ class SigmaHandler(Handler):
 
         def update(self, value):
             length = len(self._window)
-            if length > self._size:
+            if length >= self._size:
                 self._avg += value / length - self._window[0] / length
                 self._avg_square += ((value ** 2) / length - self._square_window[0] / length)
                 self._square_window.popleft()
