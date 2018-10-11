@@ -59,7 +59,7 @@ class SigmaHandler(Handler):
             self._window = []
 
         def getsize(self):
-            return self._size
+            return len(self._window)
 
     def __init__(self, agent):
         self._agent = agent
