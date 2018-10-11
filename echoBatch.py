@@ -3,6 +3,7 @@ import json
 from kapacitor.udf.agent import Agent,Handler
 from kapacitor.udf import udf_pb2
 import ast
+from kapacitor.udf.udf_pb2 import STRING,DOUBLE,INT,DURATION,STREAM,BATCH
 
 
 import logging
@@ -76,7 +77,7 @@ class EchoHandler(Handler):
 		response = udf_pb2.Response()
 		response.info.wants = udf_pb2.STREAM
 		response.info.provides = udf_pb2.BATCH
-		response.info.options['field'].valueTypes.append(udf_pb2.STRING)
+		response.info.options['field'].valueTypes.append(STRING)
 		response.info.options['size'].valueTypes.append(udf_pb2.INT)
 		response.info.options['as'].valueTypes.append(udf_pb2.STRING)
 		response.info.options['period'].valueTypes.append(udf_pb2.DURATION)
@@ -233,7 +234,6 @@ if __name__ == '__main__':
 	a = Agent()
 	h = EchoHandler(a)
 	a.handler = h
-
 	logger.info("Starting Agent")
 	a.start()
 	a.wait()
