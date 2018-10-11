@@ -143,7 +143,7 @@ class SigmaHandler(Handler):
             self._states[point.group] = SigmaHandler.State(self._size)
         sigma = self._states[point.group].update(value)
         response.point.fieldsDouble[self._as] = sigma
-        if self._fill and self._states[point.group].getsize() < self._size:
+        if self._fill and self._states[point.group].getsize() >= self._size:
             self._agent.write_response(response)
         elif not self._fill:
             self._agent.write_response(response)
